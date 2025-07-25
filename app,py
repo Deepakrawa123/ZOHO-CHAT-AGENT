@@ -1,0 +1,76 @@
+#Streamlit Chatbot with GPT-4o-mini and Zoho Books Integration (Updated for OpenAI v1+)
+
+import streamlit as st
+import requests
+from openai import OpenAI
+import json
+
+# === CONFIG ===
+client = OpenAI(api_key="your-openai-api-key")
+zoho_access_token = "your-zoho-access-token"
+organization_id = "your-zoho-org-id"
+
+# === Streamlit UI ===
+st.set_page_config(page_title="Zoho Books Chat Assistant")
+st.title("💬 Zoho Books Chat Assistant")
+
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
+
+user_input = st.chat_input("Ask me something about your books...")
+
+# === GPT System Prompt ===
+system_prompt = """
+You are a finance assistant connected to Zoho Books via API.
+Understand user queries and generate clean responses using the Zoho Books API.
+For P&L, use: /reports/profitandloss
+For invoices, use: /invoices
+Always return clear summaries.
+"""
+
+def call_openai(user_message):
+    messages = [
+        {"role": "system", "content": system_prompt}
+    ] + st.session_state.chat_history + [{"role": "user", "content": user_message}]
+
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=messages
+    )
+    reply = response.choices[0].message.content
+    return reply
+
+# === Zoho Books API Caller ===
+def call_zoho(endpoint, params={}):
+    base_url = "https://www.zohoapis.in/books/v3"
+    headers = {
+        "Authorization": f"Zoho-oauthtoken {zoho_access_token}"
+    }
+    params["organization_id"] = organization_id
+    response = requests.get(f"{base_url}/{endpoint}", headers=headers, params=params)
+    try:
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return {"error": str(e), "details": response.text}
+
+# === Main Chat Logic ===
+if user_input:
+    st.session_state.chat_history.append({"role": "user", "content": user_input})
+
+    # Step 1: Let GPT interpret the request
+    reply = call_openai(user_input)
+    st.session_state.chat_history.append({"role": "assistant", "content": reply})
+
+# === Chat Display ===
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# === Manual Trigger Examples ===
+if st.button("📊 Show This Year P&L"):
+    data = call_zoho("reports/profitandloss", {
+        "from_date": "2024-01-01",
+        "to_date": "2024-12-31"
+    })
+    st.json(data if "report" in data else data.get("error", data))
